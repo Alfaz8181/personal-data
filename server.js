@@ -1,9 +1,10 @@
-// server.js - FINAL CODE WITH DATABASE INTEGRATION
+// server.js - FINAL DEPLOYABLE VERSION
 
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+const path = require('path'); // <<< NEW LINE: Required for Express to serve static files correctly
 
 // Load environment variables (like MONGO_URI) from the .env file
 dotenv.config(); 
@@ -13,10 +14,19 @@ const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI;
 
 // --- Middleware ---
-// 1. Enable CORS so the frontend (index.html) can talk to this server
 app.use(cors());
-// 2. Parse incoming JSON payloads (needed for POST requests)
 app.use(express.json()); 
+
+
+// =========================================================================
+// <<< NEW SECTION TO FIX "Cannot GET /" ERROR >>>
+// --- 0. Serve Static Files (The Frontend) ---
+// This tells Express to look in the current directory (where server.js is) 
+// for static files (index.html, style.css, script.js) 
+// and serves index.html automatically when a user visits the root ('/')
+app.use(express.static(path.join(__dirname, '/'))); 
+// =========================================================================
+
 
 // --- 1. Database Connection ---
 mongoose.connect(MONGO_URI)
@@ -24,17 +34,15 @@ mongoose.connect(MONGO_URI)
     .catch(err => console.error('MongoDB connection error:', err));
 
 // --- 2. Data Model (Schema) ---
-// Defines the structure and data types for documents in the 'records' collection
 const RecordSchema = new mongoose.Schema({
-    type: { type: String, required: true },       // e.g., 'Scholarship', 'Certificate'
-    name: { type: String, required: true },       // e.g., 'K-12 Scholarship'
-    idNumber: { type: String, required: true },   // The unique ID or number
-    password: { type: String, default: '' },      // The sensitive data (stored as plain text for this simple demo)
+    type: { type: String, required: true },
+    name: { type: String, required: true },
+    idNumber: { type: String, required: true },
+    password: { type: String, default: '' }, 
     notes: { type: String },
     createdAt: { type: Date, default: Date.now }
 });
 
-// Creates the Mongoose Model, which interacts with the 'records' collection in MongoDB
 const Record = mongoose.model('Record', RecordSchema);
 
 
@@ -44,7 +52,6 @@ const Record = mongoose.model('Record', RecordSchema);
 app.get('/api/records', async (req, res) => {
     try {
         const records = await Record.find().sort({ createdAt: -1 });
-        // NOTE: In a real app, you would ONLY send back data associated with the authenticated user.
         res.status(200).json(records); 
     } catch (err) {
         res.status(500).json({ message: 'Error retrieving records: ' + err.message });
@@ -63,7 +70,7 @@ app.post('/api/records', async (req, res) => {
 
     try {
         const newRecord = await record.save();
-        res.status(201).json(newRecord); // 201 Created
+        res.status(201).json(newRecord); 
     } catch (err) {
         res.status(400).json({ message: 'Error saving record: ' + err.message });
     }
@@ -72,7 +79,6 @@ app.post('/api/records', async (req, res) => {
 // DELETE /api/records/:id: Delete a record by its MongoDB ID
 app.delete('/api/records/:id', async (req, res) => {
     try {
-        // Find by ID provided in the URL parameter and delete it
         const result = await Record.findByIdAndDelete(req.params.id); 
         if (!result) return res.status(404).json({ message: 'Record not found' });
         res.json({ message: 'Record successfully deleted' });
