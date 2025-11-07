@@ -1,232 +1,237 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const form = document.getElementById('recordForm');
-    const recordsContainer = document.getElementById('recordsContainer');
-    const noRecords = document.getElementById('noRecords');
+// script.js - FINAL VERSION WITH AUTHENTICATION
 
-    // --- Configuration ---
-    const API_BASE_URL = 'http://localhost:3000/api/records';
-    let records = []; // Records will now be managed by the server
+// 1. CONFIGURATION
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// CRITICAL: YOUR LIVE RENDER URL
+const RENDER_URL = 'https://personal-data-api.onrender.com'; 
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+const API_BASE_URL = `${RENDER_URL}/api/records`;
+const AUTH_URL_BASE = `${RENDER_URL}/api/auth`;
 
-    // --- Core Functions ---
+// 2. DOM ELEMENTS
+const dashboardContainer = document.getElementById('mainDashboard');
+const authContainer = document.getElementById('authContainer');
+const loginForm = document.getElementById('loginForm');
+const signupForm = document.getElementById('signupForm');
+const recordsList = document.getElementById('recordsList');
+const addRecordForm = document.getElementById('addRecordForm');
+const authMessage = document.getElementById('authMessage');
 
-    /**
-     * Replaces localStorage loading. Fetches records from the server.
-     */
-    const fetchRecords = async () => {
-        try {
-            noRecords.style.display = 'block'; // Show loading or placeholder initially
-            
-            const response = await fetch(API_BASE_URL);
-            
-            if (!response.ok) {
-                // If the response is not 2xx, throw an error
-                throw new Error(`Server error: ${response.status} ${response.statusText}`);
-            }
+// --- Helper Functions ---
 
-            // Replace local records array with data from the server
-            records = await response.json(); 
-            renderRecords(); // Render the fetched data
-            
-        } catch (error) {
-            console.error("Error fetching records:", error);
-            // Display an error message to the user
-            recordsContainer.innerHTML = '<div class="alert alert-danger" role="alert">Could not load records. Is the backend server running?</div>';
-            noRecords.style.display = 'none';
-        }
+// Attaches the JWT token to the request header
+const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        return {};
+    }
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}` // The format the server expects
     };
+};
 
-    /**
-     * Renders all records as interactive Bootstrap cards. (No change from original logic)
-     */
-    const renderRecords = () => {
-        recordsContainer.innerHTML = ''; 
-        
-        if (records.length === 0) {
-            noRecords.style.display = 'block';
+// Shows error message on the screen
+const showAuthError = (message) => {
+    authMessage.textContent = message;
+    authMessage.classList.remove('d-none');
+    setTimeout(() => authMessage.classList.add('d-none'), 4000); // 4 seconds
+};
+
+// Controls which UI section is visible
+const toggleUI = (isAuthenticated) => {
+    if (isAuthenticated) {
+        authContainer.style.display = 'none';
+        dashboardContainer.style.display = 'block';
+        fetchRecords(); // Load data only after login
+    } else {
+        authContainer.style.display = 'block';
+        dashboardContainer.style.display = 'none';
+        localStorage.removeItem('token'); // Clear token on logout
+    }
+};
+
+
+// --- Authentication Logic ---
+
+const handleAuth = async (endpoint, formData) => {
+    try {
+        const response = await fetch(`${AUTH_URL_BASE}/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || `Authentication failed.`);
+        }
+
+        // Success: Store the token and show the dashboard
+        localStorage.setItem('token', data.token);
+        toggleUI(true); // User is now logged in
+
+    } catch (error) {
+        console.error(`Error during ${endpoint}:`, error);
+        showAuthError(error.message);
+    }
+};
+
+// --- Record Management Logic (UPDATED to include Token) ---
+
+const fetchRecords = async () => {
+    try {
+        const response = await fetch(API_BASE_URL, {
+            headers: getAuthHeaders(), // Sending token
+        });
+
+        if (response.status === 401) {
+            // Token expired or invalid: force logout
+            toggleUI(false);
             return;
         }
-        noRecords.style.display = 'none';
 
-        records.forEach((record, index) => {
-            // NOTE: In a real app, 'index' for DOM manipulation should be the record's unique ID from the database (e.g., record._id).
-            // For this example, we'll continue using array index, but keep the unique ID concept in mind.
-            const cardHTML = createRecordCard(record, index); 
-            recordsContainer.insertAdjacentHTML('beforeend', cardHTML);
-        });
+        const records = await response.json();
+        renderRecords(records);
+    } catch (error) {
+        console.error("Error fetching records:", error);
+        // Do not alert, as the 401 unauth will handle it silently
+    }
+};
 
-        document.querySelectorAll('.delete-record').forEach(button => {
-            button.addEventListener('click', deleteRecord);
-        });
-        document.querySelectorAll('.toggle-password').forEach(button => {
-            button.addEventListener('click', togglePasswordVisibility);
-        });
-    };
-    
-    // ... (createRecordCard function remains the same, assuming 'record' object structure) ...
-    const createRecordCard = (record, index) => {
-        // Use database ID if available, otherwise array index
-        const id = record._id || index; 
-        
-        let typeClass = '';
-        let badgeColor = 'secondary';
-        switch (record.type) {
-            case 'Scholarship':
-                badgeColor = 'primary';
-                typeClass = 'type-Scholarship';
-                break;
-            case 'Certificate':
-                badgeColor = 'success';
-                typeClass = 'type-Certificate';
-                break;
-            case 'Account':
-                badgeColor = 'warning';
-                typeClass = 'type-Account';
-                break;
-        }
-
-        // IMPORTANT: In a real app, the server would never send the password back!
-        // We are only masking here for demonstration purposes.
-        const maskedPassword = record.password ? '••••••••' : 'N/A';
-        const passwordButton = record.password ? 
-            `<button class="btn btn-sm btn-outline-secondary toggle-password" data-id="${id}" type="button">Show</button>` : 
-            `<span class="text-muted">N/A</span>`;
-
-        return `
-            <div class="col" data-id="${id}">
-                <div class="card h-100 shadow-sm record-card ${typeClass}">
-                    <div class="card-body">
-                        <span class="badge bg-${badgeColor} float-end">${record.type}</span>
-                        <h5 class="card-title">${record.name}</h5>
-                        <hr>
-                        <p class="card-text mb-1">
-                            <strong>ID/Number:</strong> 
-                            <span class="text-primary">${record.idNumber}</span>
-                        </p>
-                        <p class="card-text mb-1 d-flex justify-content-between align-items-center">
-                            <strong>Password/Key:</strong> 
-                            <span id="password-${id}" class="sensitive-data text-danger">${maskedPassword}</span>
-                            ${passwordButton}
-                        </p>
-                        <p class="card-text mt-3 small text-muted">
-                            <strong>Notes:</strong> ${record.notes || 'No notes provided.'}
-                        </p>
-                    </div>
-                    <div class="card-footer bg-white border-0 text-end">
-                        <button class="btn btn-sm btn-outline-danger delete-record" data-id="${id}">Delete</button>
-                    </div>
+const renderRecords = (records) => {
+    recordsList.innerHTML = '';
+    if (records.length === 0) {
+        recordsList.innerHTML = '<p class="text-muted">No records found. Add one above!</p>';
+        return;
+    }
+    // ... (Your existing rendering logic)
+    records.forEach(record => {
+        const card = document.createElement('div');
+        card.className = 'col-md-4 mb-4';
+        card.innerHTML = `
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h5 class="card-title">${record.name}</h5>
+                    <p class="card-text text-muted">${record.type}</p>
+                    <ul class="list-unstyled small">
+                        <li><strong>ID/Number:</strong> ${record.idNumber}</li>
+                        <li><strong>Password:</strong> ${record.password || 'N/A'}</li>
+                        <li><strong>Notes:</strong> ${record.notes || 'None'}</li>
+                    </ul>
+                    <button class="btn btn-danger btn-sm" onclick="deleteRecord('${record._id}')">Delete</button>
                 </div>
             </div>
         `;
+        recordsList.appendChild(card);
+    });
+};
+
+const handleAddRecord = async (e) => {
+    e.preventDefault();
+
+    const formData = {
+        type: document.getElementById('recordType').value,
+        name: document.getElementById('recordName').value,
+        idNumber: document.getElementById('recordId').value,
+        password: document.getElementById('recordPassword').value,
+        notes: document.getElementById('recordNotes').value,
     };
 
+    try {
+        const response = await fetch(API_BASE_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(), // Sending token
+            body: JSON.stringify(formData),
+        });
 
-    // --- Event Handlers (Updated for Server Communication) ---
+        if (!response.ok) {
+            if (response.status === 401) {
+                toggleUI(false);
+                alert("Session expired. Please log in again.");
+                return;
+            }
+            throw new Error("Failed to save record.");
+        }
 
-    /**
-     * Handles form submission to ADD a new record (using POST).
-     */
-    const addRecord = async (e) => {
+        // Success
+        addRecordForm.reset();
+        fetchRecords();
+
+    } catch (error) {
+        console.error("Error saving record:", error);
+        alert(error.message);
+    }
+};
+
+const deleteRecord = async (id) => {
+    if (!confirm('Are you sure you want to delete this record?')) return;
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(), // Sending token
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) toggleUI(false);
+            throw new Error("Failed to delete record.");
+        }
+
+        fetchRecords();
+    } catch (error) {
+        console.error("Error deleting record:", error);
+        alert(error.message);
+    }
+};
+
+const handleLogout = () => {
+    toggleUI(false);
+    alert("You have been logged out.");
+};
+
+
+// --- Event Listeners and Initialization ---
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Check for existing token on page load
+    const token = localStorage.getItem('token');
+    if (token) {
+        toggleUI(true);
+    } else {
+        toggleUI(false);
+    }
+
+    // Auth Form Submission Handlers
+    loginForm.addEventListener('submit', (e) => {
         e.preventDefault();
+        const username = document.getElementById('loginUsername').value;
+        const password = document.getElementById('loginPassword').value;
+        handleAuth('login', { username, password });
+    });
 
-        const newRecordData = {
-            type: form.recordType.value,
-            name: form.recordName.value.trim(),
-            idNumber: form.recordID.value.trim(),
-            password: form.recordPassword.value.trim(), 
-            notes: form.recordNotes.value.trim(),
-        };
+    signupForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const username = document.getElementById('signupUsername').value;
+        const password = document.getElementById('signupPassword').value;
+        handleAuth('signup', { username, password });
+    });
 
-        try {
-            const response = await fetch(API_BASE_URL, {
-                method: 'POST', // HTTP method for creating data
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(newRecordData) // Send the data as JSON
-            });
+    // Toggle between login and signup views
+    document.getElementById('showSignup').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('loginCard').style.display = 'none';
+        document.getElementById('signupCard').style.display = 'block';
+    });
 
-            if (response.ok) {
-                // If successful (HTTP 201 Created), refresh the list
-                form.reset();
-                const collapseElement = document.getElementById('collapseForm');
-                const bsCollapse = bootstrap.Collapse.getInstance(collapseElement);
-                if (bsCollapse) {
-                    bsCollapse.hide();
-                }
-                await fetchRecords(); // Reload data from the server
-            } else {
-                throw new Error('Failed to save record on the server.');
-            }
+    document.getElementById('showLogin').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('signupCard').style.display = 'none';
+        document.getElementById('loginCard').style.display = 'block';
+    });
 
-        } catch (error) {
-            console.error("Error adding record:", error);
-            alert("Failed to save record. Check the server console.");
-        }
-    };
-
-    /**
-     * Handles DELETE request to remove a record (using DELETE).
-     */
-    const deleteRecord = async (e) => {
-        // We use the data-id attribute which should be the database ID (e.g., MongoDB's _id)
-        const recordId = e.target.dataset.id; 
-        
-        if (!confirm('Are you sure you want to delete this record? This action is permanent.')) {
-            return;
-        }
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/${recordId}`, {
-                method: 'DELETE', // HTTP method for deleting data
-            });
-
-            if (response.ok) {
-                // If successful, refresh the list
-                await fetchRecords(); 
-            } else {
-                throw new Error('Failed to delete record on the server.');
-            }
-        } catch (error) {
-            console.error("Error deleting record:", error);
-            alert("Failed to delete record. Check the server console.");
-        }
-    };
-    
-    /**
-     * Toggles the visibility of the password (remains client-side only)
-     * NOTE: In a secure app, the password is NEVER sent back, so this function is removed or modified.
-     * We keep it simple here, but acknowledge the security risk.
-     */
-    const togglePasswordVisibility = (e) => {
-        const recordId = e.target.dataset.id;
-        // Find the record object locally using the ID
-        const record = records.find(r => r._id == recordId || r.id == recordId); 
-        
-        if (!record) return;
-
-        const passwordSpan = document.getElementById(`password-${recordId}`);
-        const button = e.target;
-        const storedPassword = record.password;
-
-        if (passwordSpan.textContent === '••••••••' || passwordSpan.textContent === 'N/A') {
-            passwordSpan.textContent = storedPassword;
-            button.textContent = 'Hide';
-            button.classList.remove('btn-outline-secondary');
-            button.classList.add('btn-secondary');
-        } else {
-            passwordSpan.textContent = '••••••••';
-            button.textContent = 'Show';
-            button.classList.remove('btn-secondary');
-            button.classList.add('btn-outline-secondary');
-        }
-    };
-
-    // --- Initialization ---
-    form.addEventListener('submit', addRecord);
-    fetchRecords(); // Initial load now calls the server
-}
-   
-
-);
-
-const API_BASE_URL = 'https://personal-data-api.onrender.com/api/records';
+    // Dashboard Form Handlers
+    addRecordForm.addEventListener('submit', handleAddRecord);
+    document.getElementById('logoutButton').addEventListener('click', handleLogout);
+});
