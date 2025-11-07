@@ -228,4 +228,5 @@ document.addEventListener('DOMContentLoaded', () => {
    
 
 );
-const API_BASE_URL = 'YOUR_RENDER_BACKEND_URL/api/records';
+
+const API_BASE_URL = 'https://personal-data-api.onrender.com/api/records';
